@@ -107,7 +107,7 @@ class MNNLLMEngine {
     // ──────────────────────────────────────────────────────────────────
 
     /** Functional interface matching the JNI callback signature. */
-    interface TokenCallback {
+    fun interface TokenCallback {
         fun onToken(token: String, isDone: Boolean)
     }
 

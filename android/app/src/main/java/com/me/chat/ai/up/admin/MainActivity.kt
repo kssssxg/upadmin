@@ -9,7 +9,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.ConsoleMessage
 import android.util.Log
-import androidx.activity.addCallback
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -17,7 +17,6 @@ import com.me.chat.ai.up.admin.bridge.AppJsBridge
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.MediaType.Companion.toMediaType
 import java.io.ByteArrayInputStream
 import java.util.concurrent.TimeUnit
 
@@ -54,14 +53,16 @@ class MainActivity : AppCompatActivity() {
         webView.loadUrl("file:///android_asset/web/index.html")
 
         // Handle back navigation using the modern OnBackPressedDispatcher API
-        onBackPressedDispatcher.addCallback(this) {
-            if (webView.canGoBack()) {
-                webView.goBack()
-            } else {
-                isEnabled = false
-                onBackPressedDispatcher.onBackPressed()
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (webView.canGoBack()) {
+                    webView.goBack()
+                } else {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                }
             }
-        }
+        })
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -159,8 +160,9 @@ class MainActivity : AppCompatActivity() {
         reqBuilder.method(method, body)
 
         val response = httpClient.newCall(reqBuilder.build()).execute()
-        val responseBody = response.body?.bytes() ?: ByteArray(0)
-        val contentType = response.body?.contentType()?.toString() ?: "application/json"
+        val responseBodyObj = response.body
+        val contentType = responseBodyObj?.contentType()?.toString() ?: "application/json"
+        val responseBody = responseBodyObj?.bytes() ?: ByteArray(0)
 
         val headers = mutableMapOf(
             "Access-Control-Allow-Origin" to "*",

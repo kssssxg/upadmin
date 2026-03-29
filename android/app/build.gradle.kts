@@ -46,14 +46,6 @@ android {
             jniLibs.srcDirs("src/main/jniLibs")
         }
     }
-
-    packaging {
-        jniLibs {
-            // Keep all native libs from MNN
-            keepDebugSymbols += "**/libmnn_llm.so"
-            keepDebugSymbols += "**/libMNN.so"
-        }
-    }
 }
 
 dependencies {
@@ -64,5 +56,4 @@ dependencies {
     implementation(libs.okhttp.logging)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.lifecycle.runtime.ktx)
-    implementation(libs.androidx.work.runtime.ktx)
 }

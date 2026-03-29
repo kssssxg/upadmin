@@ -44,7 +44,7 @@ jobs:
           path: |
             mnn-android-libs
             mnn-headers
-          key: mnn-3.4.1-android-arm64-v8a-llm-jni-v3
+          key: mnn-3.4.1-android-arm64-v8a-llm-jni-v4
 
       - name: Locate NDK
         id: ndk

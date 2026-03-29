@@ -213,12 +213,16 @@ Java_com_me_chat_ai_up_admin_mnn_MNNLLMEngine_nativeChat(
 
     try {
         auto msgs = parseMessages(msgsJson);
-        // Feed each message; last user message triggers generation
+        // Feed each message; capture last user-turn response via ostringstream
         std::string result;
+        std::ostringstream oss;
         llm->reset();
         for (const auto& m : msgs) {
             if (m.role == "user") {
-                result = llm->response(m.content, nullptr);
+                oss.str("");
+                oss.clear();
+                llm->response(m.content, &oss);
+                result = oss.str();
             }
         }
         return env->NewStringUTF(result.c_str());
@@ -328,7 +332,6 @@ Java_com_me_chat_ai_up_admin_mnn_MNNLLMEngine_nativeRelease(
     Llm* llm = reinterpret_cast<Llm*>(handle);
     if (llm) {
         LOGI("nativeRelease");
-        llm->release();
         delete llm;
     }
 }

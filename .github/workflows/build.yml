@@ -44,7 +44,7 @@ jobs:
           path: |
             mnn-android-libs
             mnn-headers
-          key: mnn-3.4.1-android-arm64-v8a-llm-jni-v2
+          key: mnn-3.4.1-android-arm64-v8a-llm-jni-v3
 
       - name: Locate NDK
         id: ndk
@@ -100,8 +100,8 @@ jobs:
           cmake --build . --parallel $(nproc)
 
           mkdir -p ../../mnn-android-libs/arm64-v8a
-          # Copy all built .so files (libMNN.so, libmnn_llm.so, libMNN_Express.so if present)
-          find . -maxdepth 3 -name "*.so" -exec cp {} ../../mnn-android-libs/arm64-v8a/ \;
+          # Copy ALL built .so files (no maxdepth – LLM libs may be in sub-dirs)
+          find . -name "*.so" -exec cp {} ../../mnn-android-libs/arm64-v8a/ \;
           echo "Built .so files:"
           ls -lh ../../mnn-android-libs/arm64-v8a/
 
@@ -125,14 +125,14 @@ jobs:
           NDK_ROOT="${{ steps.ndk.outputs.NDK_ROOT }}"
           echo "Building JNI wrapper with NDK: $NDK_ROOT"
 
-          # Verify required inputs
+          # libMNN.so is required; libmnn_llm.so is optional (CMakeLists.txt
+          # handles its absence gracefully – LLM symbols may live in libMNN.so)
           if [ ! -f mnn-android-libs/arm64-v8a/libMNN.so ]; then
             echo "ERROR: libMNN.so not found – cannot build JNI wrapper"
             exit 1
           fi
           if [ ! -f mnn-android-libs/arm64-v8a/libmnn_llm.so ]; then
-            echo "ERROR: libmnn_llm.so not found – cannot build JNI wrapper"
-            exit 1
+            echo "WARNING: libmnn_llm.so not found – will link JNI wrapper against libMNN.so only"
           fi
 
           # Locate llm.hpp (try several known locations)

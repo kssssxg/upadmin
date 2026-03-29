@@ -139,6 +139,8 @@ class MNNLLMEngine {
                     // Integrated into libMNN in newer builds — not a fatal error.
                 }
                 System.loadLibrary("mnn_llm")
+                // JNI wrapper that exposes the native* methods above
+                System.loadLibrary("mnn_jni")
                 nativeAvailable = true
                 Log.i(TAG, "MNN native library loaded successfully")
             } catch (e: UnsatisfiedLinkError) {

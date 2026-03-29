@@ -4,7 +4,8 @@
         <item name="colorPrimaryVariant">#0055cc</item>
         <item name="colorOnPrimary">#ffffff</item>
         <item name="android:windowBackground">#f2f2f7</item>
-        <item name="android:statusBarColor">#ffffff</item>
+        <!-- Transparent status bar with dark icons; content shows through -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">#ffffff</item>
         <item name="android:windowLightStatusBar" tools:targetApi="23">true</item>
     </style>

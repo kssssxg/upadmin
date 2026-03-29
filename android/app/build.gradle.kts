@@ -15,7 +15,8 @@ android {
         versionName = "7.0"
 
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            // Only arm64-v8a is built from source in CI; armeabi-v7a may be added later
+            abiFilters += listOf("arm64-v8a")
         }
     }
 

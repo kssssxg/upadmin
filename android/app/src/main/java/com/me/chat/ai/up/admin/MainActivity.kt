@@ -1,6 +1,7 @@
 package com.me.chat.ai.up.admin
 
 import android.annotation.SuppressLint
+import android.graphics.Color
 import android.os.Bundle
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -37,8 +38,9 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Edge-to-edge display
+        // Edge-to-edge: transparent status bar, content shows through; NOT fullscreen
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = Color.TRANSPARENT
         val insetsController = WindowInsetsControllerCompat(window, window.decorView)
         insetsController.isAppearanceLightStatusBars = true
 

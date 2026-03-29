@@ -41,8 +41,25 @@ jobs:
         id: mnn-cache
         uses: actions/cache@v4
         with:
-          path: mnn-android-libs
-          key: mnn-3.4.1-android-arm64-v8a-llm-v2
+          path: |
+            mnn-android-libs
+            mnn-headers
+          key: mnn-3.4.1-android-arm64-v8a-llm-jni-v1
+
+      - name: Locate NDK
+        id: ndk
+        run: |
+          NDK_ROOT="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
+          if [ -z "$NDK_ROOT" ] || [ ! -d "$NDK_ROOT" ]; then
+            NDK_ROOT=$(ls -d "$ANDROID_SDK_ROOT/ndk/"* 2>/dev/null | sort -V | tail -1)
+          fi
+          if [ -z "$NDK_ROOT" ] || [ ! -d "$NDK_ROOT" ]; then
+            echo "NDK not found, installing..."
+            $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "ndk;27.2.12479018" 2>/dev/null | tail -3 || true
+            NDK_ROOT="$ANDROID_SDK_ROOT/ndk/27.2.12479018"
+          fi
+          echo "NDK_ROOT=$NDK_ROOT" >> "$GITHUB_OUTPUT"
+          echo "Using NDK: $NDK_ROOT"
 
       - name: Clone MNN source
         if: steps.mnn-cache.outputs.cache-hit != 'true'
@@ -55,10 +72,7 @@ jobs:
         if: steps.mnn-cache.outputs.cache-hit != 'true'
         working-directory: mnn-src
         run: |
-          NDK_ROOT="$ANDROID_NDK_HOME"
-          if [ -z "$NDK_ROOT" ]; then
-            NDK_ROOT="$ANDROID_SDK_ROOT/ndk/27.3.13750724"
-          fi
+          NDK_ROOT="${{ steps.ndk.outputs.NDK_ROOT }}"
           echo "Using NDK: $NDK_ROOT"
 
           mkdir -p build-arm64
@@ -87,12 +101,79 @@ jobs:
           echo "Built .so files:"
           ls -lh ../../mnn-android-libs/arm64-v8a/
 
+          # Cache MNN headers needed to build our JNI wrapper
+          cd ..
+          mkdir -p ../mnn-headers/include ../mnn-headers/llm
+          cp -r include/* ../mnn-headers/include/ 2>/dev/null || true
+          # LLM engine header (location varies by MNN version)
+          if [ -d transformers/llm/engine/include ]; then
+            cp -r transformers/llm/engine/include/* ../mnn-headers/llm/
+          fi
+          if [ -d 3rd_party/LLM/include ]; then
+            cp -r 3rd_party/LLM/include/* ../mnn-headers/llm/ 2>/dev/null || true
+          fi
+          echo "Cached headers:"
+          find ../mnn-headers -name "*.h" -o -name "*.hpp" | head -20
+
+      - name: Build MNN JNI wrapper for arm64-v8a
+        if: steps.mnn-cache.outputs.cache-hit != 'true'
+        run: |
+          NDK_ROOT="${{ steps.ndk.outputs.NDK_ROOT }}"
+          echo "Building JNI wrapper with NDK: $NDK_ROOT"
+
+          # Verify required inputs
+          if [ ! -f mnn-android-libs/arm64-v8a/libMNN.so ]; then
+            echo "ERROR: libMNN.so not found – cannot build JNI wrapper"
+            exit 1
+          fi
+          if [ ! -f mnn-android-libs/arm64-v8a/libmnn_llm.so ]; then
+            echo "ERROR: libmnn_llm.so not found – cannot build JNI wrapper"
+            exit 1
+          fi
+
+          # Locate llm.hpp (try several known locations)
+          LLM_INC=""
+          for candidate in mnn-headers/llm mnn-src/transformers/llm/engine/include mnn-src/3rd_party/LLM/include; do
+            if [ -f "$candidate/llm.hpp" ]; then
+              LLM_INC="$(pwd)/$candidate"
+              break
+            fi
+          done
+          if [ -z "$LLM_INC" ]; then
+            echo "WARNING: llm.hpp not found – searching in mnn-headers..."
+            LLM_INC=$(dirname "$(find mnn-headers -name 'llm.hpp' 2>/dev/null | head -1)" 2>/dev/null) || LLM_INC=""
+          fi
+          if [ -z "$LLM_INC" ]; then
+            echo "ERROR: llm.hpp not found; cannot build JNI wrapper"
+            exit 1
+          fi
+          echo "LLM include dir: $LLM_INC"
+
+          MNN_INC="$(pwd)/mnn-headers/include"
+          MNN_LIB="$(pwd)/mnn-android-libs/arm64-v8a"
+
+          cmake android/app/src/main/cpp \
+            -B build-jni-arm64 \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK_ROOT/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-26 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DMNN_INCLUDE_DIR="$MNN_INC" \
+            -DMNN_LLM_INCLUDE_DIR="$LLM_INC" \
+            -DMNN_LIB_DIR="$MNN_LIB"
+
+          cmake --build build-jni-arm64 --parallel $(nproc)
+
+          cp build-jni-arm64/libmnn_jni.so mnn-android-libs/arm64-v8a/
+          echo "JNI wrapper built:"
+          ls -lh mnn-android-libs/arm64-v8a/libmnn_jni.so
+
       - name: Copy MNN libs into jniLibs
         run: |
           mkdir -p android/app/src/main/jniLibs/arm64-v8a
           if [ -d mnn-android-libs/arm64-v8a ]; then
             cp mnn-android-libs/arm64-v8a/*.so android/app/src/main/jniLibs/arm64-v8a/ 2>/dev/null || true
-            echo "Bundled MNN libs:"
+            echo "Bundled native libs:"
             ls android/app/src/main/jniLibs/arm64-v8a/
           else
             echo "WARNING: mnn-android-libs not found – APK will run in online-only mode"
@@ -112,9 +193,20 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
-      - name: Build debug APK
+      - name: Build debug APK (with retry)
         working-directory: android
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: |
+          for attempt in 1 2 3; do
+            echo "=== Debug APK build attempt $attempt ==="
+            ./gradlew assembleDebug --no-daemon --stacktrace && break
+            if [ $attempt -lt 3 ]; then
+              echo "Attempt $attempt failed, retrying in 15s..."
+              sleep 15
+            else
+              echo "All attempts failed."
+              exit 1
+            fi
+          done
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
@@ -123,9 +215,20 @@ jobs:
           path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
-      - name: Build release APK (unsigned)
+      - name: Build release APK (unsigned, with retry)
         working-directory: android
-        run: ./gradlew assembleRelease --no-daemon
+        run: |
+          for attempt in 1 2 3; do
+            echo "=== Release APK build attempt $attempt ==="
+            ./gradlew assembleRelease --no-daemon && break
+            if [ $attempt -lt 3 ]; then
+              echo "Attempt $attempt failed, retrying in 15s..."
+              sleep 15
+            else
+              echo "All attempts failed."
+              exit 1
+            fi
+          done
 
       - name: Upload release APK (unsigned)
         uses: actions/upload-artifact@v4
@@ -133,3 +236,4 @@ jobs:
           name: app-release-unsigned
           path: android/app/build/outputs/apk/release/app-release-unsigned.apk
           retention-days: 30
+

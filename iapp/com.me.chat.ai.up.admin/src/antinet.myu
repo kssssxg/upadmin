@@ -1,0 +1,114 @@
+fn 开启防御()
+// 开启循环检测线程
+t()
+{
+    w(true)
+    {
+        // 延时2秒，防止卡死UI
+        stop(200)
+        fn 故辞官方.检测VPN()
+        
+    }
+}
+end fn
+
+// ==========================================
+// 1. 检测系统代理 (修复版)
+// ==========================================
+fn 检测代理()
+    // 使用 javax 调用静态方法，更稳定
+    // java.lang.System.getProperty("http.proxyHost")
+    javax(host, null, "java.lang.System", "getProperty", "http.proxyHost")
+    javax(port, null, "java.lang.System", "getProperty", "http.proxyPort")
+    
+    f(host != null || port != null)
+    {
+        fn antinet.自爆("检测到网络代理(Fiddler/Charles)，请关闭！")
+    }
+end fn
+
+// ==========================================
+// 2. 检测 VPN (修复版)
+// ==========================================
+fn 检测VPN()
+    // 1. 获取 ConnectivityManager
+    // 关键修复：明确指定从 android.content.Context 调用 getSystemService
+    javax(cm, activity, "android.content.Context", "getSystemService", "connectivity")
+    
+    f(cm == null)
+    {
+        endcode
+    }
+
+    // 2. 获取当前活跃网络 (getActiveNetwork)
+    javax(network, cm, "android.net.ConnectivityManager", "getActiveNetwork")
+    
+    f(network == null)
+    {
+        // 没有网络连接，跳过检测
+        endcode
+    }
+    
+    // 3. 获取网络能力 (getNetworkCapabilities)
+    javax(caps, cm, "android.net.ConnectivityManager", "getNetworkCapabilities", network)
+    
+    f(caps != null)
+    {
+        // 4. 检查是否有 VPN 传输层 (TRANSPORT_VPN = 4)
+        // hasTransport 需要传入 int 类型，iApp 会自动处理数字
+        javax(isVpn, caps, "android.net.NetworkCapabilities", "hasTransport", 4)
+        
+        f(isVpn == true)
+        {
+            fn antinet.自爆("检测到 VPN (抓包软件)，请关闭！")
+        }
+    }
+end fn
+
+// ==========================================
+// 3. 检测包名 (无需修改，但这块加上异常捕获更稳)
+// ==========================================
+fn 检测包名()
+    // 常见抓包工具包名
+    s pkg1 = "com.guoshi.httpcanary"
+    s pkg2 = "app.greyshirts.sslcapture"
+    s pkg3 = "com.minhui.networkcapture"
+    
+    fn antinet.检查单个包(pkg1)
+    fn antinet.检查单个包(pkg2)
+    fn antinet.检查单个包(pkg3)
+end fn
+
+fn 检查单个包(name)
+    try
+    {
+        javax(pm, activity, "android.content.Context", "getPackageManager")
+        // getPackageInfo(String, int)
+        javax(pi, pm, "android.content.pm.PackageManager", "getPackageInfo", name, 0)
+        
+        f(pi != null)
+        {
+            fn antinet.自爆("发现抓包工具: " + name)
+        }
+    }
+    catch(e)
+    {
+        // 没安装会报错，正常忽略
+    }
+end fn
+
+// ==========================================
+// ☠️ 自爆程序
+// ==========================================
+fn 自爆(msg)
+    ufnsui()
+    {
+        tw(msg)
+        // 震动提醒
+        zdp(1000, z)
+        // 延时一秒让用户看清
+        stop(1000)
+        // 强制杀进程
+        java(null, null, "java.lang.System.exit", 0)
+    }
+end fn

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<title>攻略up管理员的一百种方法</title>
+<icon>icon.png</icon>
+<packageName>com.me.chat.ai.up.admin</packageName>
+<versionName>7.0</versionName>
+<versionint>70</versionint>
+<sdk>15</sdk>
+<yuv>3</yuv>
+
+<remark></remark>
+<Permissions>android.permission.READ_EXTERNAL_STORAGE
+android.permission.REQUEST_INSTALL_PACKAGES
+android.permission.INTERNET
+android.permission.WRITE_EXTERNAL_STORAGE</Permissions>
+<createTime>2026-02-05 23:54:13</createTime>
+<upTime>2026-02-05 23:54:13</upTime>

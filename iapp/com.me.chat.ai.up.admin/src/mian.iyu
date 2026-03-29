@@ -1,0 +1,72 @@
+<View id="1" did="0" type="WebView">
+<ppt>width=-1
+height=-1
+url=@index.html
+</ppt>
+<event></event>
+</View>
+<UIEventset><eventItme type="loading">// 启动反抓包防御网
+fn antinet.开启防御()
+
+s a = null
+sss bbh=7.0
+s b = "声明"
+s c = "白屏是页面还在加载。内容由AI生成，信息可能有误，开发者不对AI生成内容负责"
+s d = "不同意"
+s e = "同意"
+utw(a, b, c, d, e, true, v)
+{
+end()
+}
+else
+{
+
+}
+t()
+{
+  s url="https://iappht.sslqq.cn/user/getApp.php?aid=1454"
+  hs(url,host)
+  json(host,jo)
+  json(jo,"get","app_edition",app_edition)
+  json(jo,"get","app_download",app_download)
+  json(jo,"get","app_new",app_new)
+  ufnsui()
+  {
+    f(app_edition &gt; sss.bbh)
+    {
+      utw(null,"发现软件新版本",app_new,"更新",true,v)
+      {
+        hws(app_download)
+        end()
+      }
+    }
+  }
+  
+  ss("https://iappht.sslqq.cn/user/getApp.php?aid="+"1454",url)
+  hs(url,host)
+  json(host,jo)
+  json(jo,"get","app_notice",app_notice)
+  ufnsui()
+  {
+    utw(null,"软件公告",app_notice,"收到",false,v)
+    {
+    }
+  }
+
+
+
+  stop(10000)
+  ufnsui()
+  {
+  	
+      utw(null,"卑微开发者在线求捐赠","服务器将会在3月9日到期，但作者是学生，经济条件不足以支持昂贵的服务器费用(89元)，故开启众筹，你愿意为服务器出一份力吗","不愿意","愿意",true,l)
+      {
+      	tw("开发者默默流下了眼泪")
+      }
+      else
+      {
+      	hw("192.140.173.130:6688")
+      }
+  
+  }
+}</eventItme></UIEventset>

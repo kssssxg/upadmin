@@ -1,0 +1,14 @@
+# Android build outputs
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/**/.idea/
+android/**/*.iml
+
+# MNN native .so files (large binary; developers add these from MNN release)
+android/app/src/main/jniLibs/
+
+# APK and AAB artifacts
+*.apk
+*.aab

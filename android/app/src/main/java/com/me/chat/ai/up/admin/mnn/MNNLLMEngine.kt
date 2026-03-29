@@ -131,7 +131,13 @@ class MNNLLMEngine {
         init {
             try {
                 System.loadLibrary("MNN")
-                System.loadLibrary("MNN_Express")
+                // MNN_Express is embedded into libMNN in MNN 3.x; attempt to load
+                // but ignore the failure so older split-library builds also work.
+                try {
+                    System.loadLibrary("MNN_Express")
+                } catch (_: UnsatisfiedLinkError) {
+                    // Integrated into libMNN in newer builds — not a fatal error.
+                }
                 System.loadLibrary("mnn_llm")
                 nativeAvailable = true
                 Log.i(TAG, "MNN native library loaded successfully")

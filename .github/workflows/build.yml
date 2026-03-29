@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    name: Build Debug APK
+    name: Build APK (MNN bundled)
     runs-on: ubuntu-latest
 
     steps:
@@ -21,16 +21,6 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-
-      - name: Cache Gradle packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle/libs.versions.toml', 'android/gradle/wrapper/gradle-wrapper.properties') }}
-          restore-keys: |
-            gradle-
 
       - name: Write local.properties
         run: echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
@@ -45,6 +35,79 @@ jobs:
             "build-tools;35.0.0" \
             "platform-tools" \
             2>/dev/null | tail -5 || true
+
+      # ── MNN native library build (cached) ────────────────────────────
+      - name: Cache MNN build artifacts
+        id: mnn-cache
+        uses: actions/cache@v4
+        with:
+          path: mnn-android-libs
+          key: mnn-3.4.1-android-arm64-v8a-llm-v2
+
+      - name: Clone MNN source
+        if: steps.mnn-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch 3.4.1 \
+            https://github.com/alibaba/MNN.git mnn-src
+          echo "MNN source cloned"
+
+      - name: Build MNN + MNN-LLM for arm64-v8a
+        if: steps.mnn-cache.outputs.cache-hit != 'true'
+        working-directory: mnn-src
+        run: |
+          NDK_ROOT="$ANDROID_NDK_HOME"
+          if [ -z "$NDK_ROOT" ]; then
+            NDK_ROOT="$ANDROID_SDK_ROOT/ndk/27.3.13750724"
+          fi
+          echo "Using NDK: $NDK_ROOT"
+
+          mkdir -p build-arm64
+          cd build-arm64
+          cmake .. \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK_ROOT/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-26 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DMNN_BUILD_LLM=ON \
+            -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
+            -DMNN_ARM82=ON \
+            -DMNN_USE_LOGCAT=ON \
+            -DMNN_BUILD_SHARED_LIBS=ON \
+            -DMNN_BUILD_BENCHMARK=OFF \
+            -DMNN_BUILD_TEST=OFF \
+            -DMNN_BUILD_DEMO=OFF \
+            -DMNN_BUILD_TOOLS=OFF \
+            -DMNN_WIN_RUNTIME_MT=OFF
+
+          make -j$(nproc) MNN mnn_llm
+
+          mkdir -p ../../mnn-android-libs/arm64-v8a
+          # Copy all built .so files (libMNN.so, libmnn_llm.so, libMNN_Express.so if present)
+          find . -maxdepth 3 -name "*.so" -exec cp {} ../../mnn-android-libs/arm64-v8a/ \;
+          echo "Built .so files:"
+          ls -lh ../../mnn-android-libs/arm64-v8a/
+
+      - name: Copy MNN libs into jniLibs
+        run: |
+          mkdir -p android/app/src/main/jniLibs/arm64-v8a
+          if [ -d mnn-android-libs/arm64-v8a ]; then
+            cp mnn-android-libs/arm64-v8a/*.so android/app/src/main/jniLibs/arm64-v8a/ 2>/dev/null || true
+            echo "Bundled MNN libs:"
+            ls android/app/src/main/jniLibs/arm64-v8a/
+          else
+            echo "WARNING: mnn-android-libs not found – APK will run in online-only mode"
+          fi
+
+      # ── Gradle build ──────────────────────────────────────────────────
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle/libs.versions.toml', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-
 
       - name: Make gradlew executable
         run: chmod +x android/gradlew

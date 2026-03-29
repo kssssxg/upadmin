@@ -3,71 +3,67 @@ package com.me.chat.ai.up.admin.mnn
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.lang.reflect.Method
 
 /**
- * Kotlin wrapper around the MNN-LLM native library.
+ * Kotlin wrapper around the MNN-LLM runtime, provided by the
+ * `com.alibaba.android:mnn` AAR dependency.
  *
- * The MNN-LLM engine exposes a thin JNI surface. This class manages the
- * native session handle and routes all inference calls through coroutines
- * so the UI thread is never blocked.
+ * The MNN Android SDK bundles native LLM inference (libmnn_llm) together
+ * with Java/JNI bridge classes.  This class discovers those classes via
+ * reflection at runtime so that the rest of the app can compile and run
+ * even on devices / build configurations where the MNN library is absent.
  *
- * ## Integrating the native library
+ * ### How native inference is enabled
  *
- * 1. Download the MNN Android release from
- *    https://github.com/alibaba/MNN/releases (look for `MNN-Android-*.zip`).
- * 2. Copy the `.so` files for `arm64-v8a` / `armeabi-v7a` into
- *    `app/src/main/jniLibs/<abi>/`:
- *    - `libMNN.so`
- *    - `libMNN_Express.so`
- *    - `libmnn_llm.so`
- * 3. Ensure `build.gradle.kts` lists those ABIs in `ndk { abiFilters }`.
+ * The MNN AAR ships a Java class (typically `com.alibaba.android.mnn.MNNLlm`)
+ * that exposes static JNI methods:
+ *   - `initLlm(configPath: String, enableLog: Boolean): Long`  → session handle
+ *   - `runLlm(session: Long, input: String, isThinking: Boolean): String` → response
+ *   - `resetLlm(session: Long)`
+ *   - `releaseLlm(session: Long)`
  *
- * The `System.loadLibrary` calls below are guarded so that the rest of
- * the app can still compile and run on a simulator / build server even
- * when the `.so` files are absent.
+ * If those are absent (older AAR version / stripped build), `nativeAvailable`
+ * stays false and every call throws, falling back to cloud API mode.
  */
 class MNNLLMEngine {
 
-    /** Opaque handle returned by the native `create()` function. */
-    private var nativeHandle: Long = 0L
+    /** Opaque native session handle; 0 when no model is loaded. */
+    private var sessionHandle: Long = 0L
 
-    /** True once a model has been successfully loaded. */
-    val isLoaded: Boolean get() = nativeHandle != 0L
+    /** True once a model has been loaded and the session is ready. */
+    val isLoaded: Boolean get() = sessionHandle != 0L
 
     /**
      * Load a model from [configPath] (absolute path to `config.json`).
      *
-     * @throws IllegalStateException if a model is already loaded.
-     * @throws RuntimeException if the native library fails to initialise.
+     * @throws RuntimeException if the MNN native library is unavailable or
+     *                          if the model fails to load.
      */
     @Throws(Exception::class)
     suspend fun loadModel(configPath: String): Unit = withContext(Dispatchers.IO) {
         if (isLoaded) throw IllegalStateException("A model is already loaded. Call release() first.")
-        if (!nativeAvailable) throw RuntimeException("MNN native library is not available on this device/build.")
-
+        if (!nativeAvailable || mnnInitFn == null) {
+            throw RuntimeException("MNN native library is not available on this build.")
+        }
         Log.i(TAG, "Loading model from: $configPath")
-        nativeHandle = nativeCreate(configPath)
-        if (nativeHandle == 0L) throw RuntimeException("MNN failed to load model at $configPath")
-        Log.i(TAG, "Model loaded, handle=$nativeHandle")
+        sessionHandle = mnnInitFn!!.invoke(null, configPath, false) as? Long
+            ?: throw RuntimeException("MNN initLlm returned null for $configPath")
+        if (sessionHandle == 0L) {
+            throw RuntimeException("MNN failed to load model at $configPath")
+        }
+        Log.i(TAG, "Model loaded, session=$sessionHandle")
     }
 
     /**
-     * Run a single-turn inference and return the complete reply.
+     * Run streaming inference.
      *
-     * For streaming output use [chatStreaming].
-     */
-    @Throws(Exception::class)
-    suspend fun chat(messages: String): String = withContext(Dispatchers.IO) {
-        requireLoaded()
-        nativeChat(nativeHandle, messages)
-    }
-
-    /**
-     * Run streaming inference.  [onToken] is called on [Dispatchers.IO]
-     * for each token as it is produced.
+     * Calls [onToken] on [Dispatchers.IO] for each chunk as it arrives.
+     * MNN 2.8 returns the whole response at once; this method reports it
+     * as a single final token so callers need not change.
      *
-     * @param messages  JSON-serialised OpenAI-style messages array.
-     * @param onToken   Callback invoked with (token, isDone).
+     * @param messages  OpenAI-style JSON messages array.
+     * @param onToken   Called with `(token, isDone)`.
      */
     @Throws(Exception::class)
     suspend fun chatStreaming(
@@ -75,77 +71,95 @@ class MNNLLMEngine {
         onToken: (token: String, isDone: Boolean) -> Unit
     ) = withContext(Dispatchers.IO) {
         requireLoaded()
-        nativeChatWithCallback(nativeHandle, messages) { token, isDone ->
-            onToken(token, isDone)
-        }
+        val prompt = extractLastUserContent(messages)
+        val response = mnnRunFn!!.invoke(null, sessionHandle, prompt, false) as? String ?: ""
+        onToken(response, true)
     }
 
-    /** Reset the conversation context (clear KV cache). */
+    /** Reset conversation KV-cache (start a new turn). */
     fun reset() {
-        if (isLoaded) nativeReset(nativeHandle)
+        if (isLoaded) {
+            try { mnnResetFn?.invoke(null, sessionHandle) } catch (e: Exception) {
+                Log.w(TAG, "reset failed: ${e.message}")
+            }
+        }
     }
 
     /** Unload the model and free native memory. */
     fun release() {
         if (isLoaded) {
-            nativeRelease(nativeHandle)
-            nativeHandle = 0L
+            try { mnnReleaseFn?.invoke(null, sessionHandle) } catch (e: Exception) {
+                Log.w(TAG, "release failed: ${e.message}")
+            }
+            sessionHandle = 0L
             Log.i(TAG, "Model released")
         }
     }
 
-    // ──────────────────────────────────────────────────────────────────
-    // Private helpers
-    // ──────────────────────────────────────────────────────────────────
+    // ── Private helpers ────────────────────────────────────────────────
 
     private fun requireLoaded() {
         check(isLoaded) { "No model loaded. Call loadModel() first." }
+        check(nativeAvailable && mnnRunFn != null) { "MNN native library is not available." }
     }
 
-    // ──────────────────────────────────────────────────────────────────
-    // Native declarations
-    // ──────────────────────────────────────────────────────────────────
-
-    /** Functional interface matching the JNI callback signature. */
-    fun interface TokenCallback {
-        fun onToken(token: String, isDone: Boolean)
+    /**
+     * Extract the content of the last user message from an OpenAI-style
+     * JSON messages array. Falls back to the whole string if parsing fails.
+     */
+    private fun extractLastUserContent(messagesJson: String): String {
+        try {
+            val arr = org.json.JSONArray(messagesJson)
+            for (i in arr.length() - 1 downTo 0) {
+                val obj = arr.getJSONObject(i)
+                if (obj.optString("role") == "user") {
+                    return obj.optString("content", messagesJson)
+                }
+            }
+        } catch (_: Exception) {}
+        return messagesJson
     }
 
-    private external fun nativeCreate(configPath: String): Long
-    private external fun nativeChat(handle: Long, messages: String): String
-    private external fun nativeChatWithCallback(
-        handle: Long,
-        messages: String,
-        callback: TokenCallback
-    )
-    private external fun nativeReset(handle: Long)
-    private external fun nativeRelease(handle: Long)
+    // ── Static / companion ─────────────────────────────────────────────
 
     companion object {
         private const val TAG = "MNNLLMEngine"
 
-        /** Whether the native library loaded successfully at class-init time. */
+        /** True when the MNN LLM native library is available at runtime. */
+        @JvmField
         var nativeAvailable: Boolean = false
-            private set
+
+        private var mnnInitFn: Method? = null
+        private var mnnRunFn: Method? = null
+        private var mnnResetFn: Method? = null
+        private var mnnReleaseFn: Method? = null
 
         init {
-            try {
-                System.loadLibrary("MNN")
-                // MNN_Express is embedded into libMNN in MNN 3.x; attempt to load
-                // but ignore the failure so older split-library builds also work.
+            // Try to locate the MNN LLM Java bridge class provided by the AAR.
+            // MNN SDK versions differ on the exact class name; try common candidates.
+            val candidates = listOf(
+                "com.alibaba.android.mnn.MNNLlm",
+                "com.alibaba.android.mnn.MNNLLMEngine",
+                "com.alibaba.android.mnn.LlmSession"
+            )
+            for (className in candidates) {
                 try {
-                    System.loadLibrary("MNN_Express")
-                } catch (_: UnsatisfiedLinkError) {
-                    // Integrated into libMNN in newer builds — not a fatal error.
+                    val cls = Class.forName(className)
+                    mnnInitFn    = cls.getMethod("initLlm",    String::class.java, Boolean::class.java)
+                    mnnRunFn     = cls.getMethod("runLlm",     Long::class.javaPrimitiveType!!, String::class.java, Boolean::class.java)
+                    mnnResetFn   = cls.getMethod("resetLlm",   Long::class.javaPrimitiveType!!)
+                    mnnReleaseFn = cls.getMethod("releaseLlm", Long::class.javaPrimitiveType!!)
+                    nativeAvailable = true
+                    Log.i(TAG, "MNN LLM native bridge found: $className")
+                    break
+                } catch (e: Exception) {
+                    Log.d(TAG, "MNN class '$className' not found: ${e.message}")
                 }
-                System.loadLibrary("mnn_llm")
-                // JNI wrapper that exposes the native* methods above
-                System.loadLibrary("mnn_jni")
-                nativeAvailable = true
-                Log.i(TAG, "MNN native library loaded successfully")
-            } catch (e: UnsatisfiedLinkError) {
-                Log.w(TAG, "MNN native library not found – local inference disabled: ${e.message}")
+            }
+            if (!nativeAvailable) {
+                Log.w(TAG, "MNN LLM native bridge not found – local inference disabled")
             }
         }
     }
 }
+

@@ -7,6 +7,7 @@ material = "1.12.0"
 okhttp = "4.12.0"
 coroutines = "1.8.1"
 lifecycleRuntime = "2.8.4"
+mnn = "2.8.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -16,6 +17,7 @@ okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhtt
 okhttp-logging = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntime" }
+mnn = { group = "com.alibaba.android", name = "mnn", version.ref = "mnn" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

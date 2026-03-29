@@ -13,11 +13,6 @@ android {
         targetSdk = 35
         versionCode = 70
         versionName = "7.0"
-
-        ndk {
-            // Only arm64-v8a is built from source in CI; armeabi-v7a may be added later
-            abiFilters += listOf("arm64-v8a")
-        }
     }
 
     buildTypes {
@@ -41,12 +36,6 @@ android {
     kotlinOptions {
         jvmTarget = "11"
     }
-
-    sourceSets {
-        getByName("main") {
-            jniLibs.srcDirs("src/main/jniLibs")
-        }
-    }
 }
 
 dependencies {
@@ -57,4 +46,5 @@ dependencies {
     implementation(libs.okhttp.logging)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.mnn)
 }

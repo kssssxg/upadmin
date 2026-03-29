@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    name: Build APK (MNN bundled)
+    name: Build APK
     runs-on: ubuntu-latest
 
     steps:
@@ -35,153 +35,6 @@ jobs:
             "build-tools;35.0.0" \
             "platform-tools" \
             2>/dev/null | tail -5 || true
-
-      # ── MNN native library build (cached) ────────────────────────────
-      - name: Cache MNN build artifacts
-        id: mnn-cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            mnn-android-libs
-            mnn-headers
-          key: mnn-3.4.1-android-arm64-v8a-llm-jni-v5
-
-      - name: Locate NDK
-        id: ndk
-        run: |
-          NDK_ROOT="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
-          if [ -z "$NDK_ROOT" ] || [ ! -d "$NDK_ROOT" ]; then
-            NDK_ROOT=$(ls -d "$ANDROID_SDK_ROOT/ndk/"* 2>/dev/null | sort -V | tail -1)
-          fi
-          if [ -z "$NDK_ROOT" ] || [ ! -d "$NDK_ROOT" ]; then
-            echo "NDK not found, installing..."
-            $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "ndk;27.2.12479018" 2>/dev/null | tail -3 || true
-            NDK_ROOT="$ANDROID_SDK_ROOT/ndk/27.2.12479018"
-          fi
-          echo "NDK_ROOT=$NDK_ROOT" >> "$GITHUB_OUTPUT"
-          echo "Using NDK: $NDK_ROOT"
-
-      - name: Clone MNN source
-        if: steps.mnn-cache.outputs.cache-hit != 'true'
-        run: |
-          git clone --depth 1 --branch 3.4.1 \
-            https://github.com/alibaba/MNN.git mnn-src
-          echo "MNN source cloned"
-
-      - name: Build MNN + MNN-LLM for arm64-v8a
-        if: steps.mnn-cache.outputs.cache-hit != 'true'
-        working-directory: mnn-src
-        run: |
-          NDK_ROOT="${{ steps.ndk.outputs.NDK_ROOT }}"
-          echo "Using NDK: $NDK_ROOT"
-
-          mkdir -p build-arm64
-          cd build-arm64
-          cmake .. \
-            -DCMAKE_TOOLCHAIN_FILE="$NDK_ROOT/build/cmake/android.toolchain.cmake" \
-            -DANDROID_ABI=arm64-v8a \
-            -DANDROID_PLATFORM=android-26 \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DMNN_BUILD_LLM=ON \
-            -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
-            -DMNN_ARM82=ON \
-            -DMNN_USE_LOGCAT=ON \
-            -DMNN_BUILD_SHARED_LIBS=ON \
-            -DMNN_BUILD_BENCHMARK=OFF \
-            -DMNN_BUILD_TEST=OFF \
-            -DMNN_BUILD_DEMO=OFF \
-            -DMNN_BUILD_TOOLS=OFF \
-            -DMNN_WIN_RUNTIME_MT=OFF
-
-          # Build everything configured (MNN core + LLM + sub-targets).
-          # Avoid naming specific targets: in MNN 3.4.1 the LLM target is
-          # registered via add_subdirectory and is NOT a valid top-level
-          # make target when invoked by name.
-          cmake --build . --parallel $(nproc)
-
-          mkdir -p ../../mnn-android-libs/arm64-v8a
-          # Copy ALL built .so files (no maxdepth – LLM libs may be in sub-dirs)
-          find . -name "*.so" -exec cp {} ../../mnn-android-libs/arm64-v8a/ \;
-          echo "Built .so files:"
-          ls -lh ../../mnn-android-libs/arm64-v8a/
-
-          # Cache MNN headers needed to build our JNI wrapper
-          cd ..
-          mkdir -p ../mnn-headers/include ../mnn-headers/llm
-          cp -r include/* ../mnn-headers/include/ 2>/dev/null || true
-          # LLM engine header (location varies by MNN version)
-          if [ -d transformers/llm/engine/include ]; then
-            cp -r transformers/llm/engine/include/* ../mnn-headers/llm/
-          fi
-          if [ -d 3rd_party/LLM/include ]; then
-            cp -r 3rd_party/LLM/include/* ../mnn-headers/llm/ 2>/dev/null || true
-          fi
-          echo "Cached headers:"
-          find ../mnn-headers -name "*.h" -o -name "*.hpp" | head -20
-
-      - name: Build MNN JNI wrapper for arm64-v8a
-        if: steps.mnn-cache.outputs.cache-hit != 'true'
-        run: |
-          NDK_ROOT="${{ steps.ndk.outputs.NDK_ROOT }}"
-          echo "Building JNI wrapper with NDK: $NDK_ROOT"
-
-          # libMNN.so is required; libmnn_llm.so is optional (CMakeLists.txt
-          # handles its absence gracefully – LLM symbols may live in libMNN.so)
-          if [ ! -f mnn-android-libs/arm64-v8a/libMNN.so ]; then
-            echo "ERROR: libMNN.so not found – cannot build JNI wrapper"
-            exit 1
-          fi
-          if [ ! -f mnn-android-libs/arm64-v8a/libmnn_llm.so ]; then
-            echo "WARNING: libmnn_llm.so not found – will link JNI wrapper against libMNN.so only"
-          fi
-
-          # Locate llm.hpp (try several known locations)
-          LLM_INC=""
-          for candidate in mnn-headers/llm mnn-src/transformers/llm/engine/include mnn-src/3rd_party/LLM/include; do
-            if [ -f "$candidate/llm.hpp" ]; then
-              LLM_INC="$(pwd)/$candidate"
-              break
-            fi
-          done
-          if [ -z "$LLM_INC" ]; then
-            echo "WARNING: llm.hpp not found – searching in mnn-headers..."
-            LLM_INC=$(dirname "$(find mnn-headers -name 'llm.hpp' 2>/dev/null | head -1)" 2>/dev/null) || LLM_INC=""
-          fi
-          if [ -z "$LLM_INC" ]; then
-            echo "ERROR: llm.hpp not found; cannot build JNI wrapper"
-            exit 1
-          fi
-          echo "LLM include dir: $LLM_INC"
-
-          MNN_INC="$(pwd)/mnn-headers/include"
-          MNN_LIB="$(pwd)/mnn-android-libs/arm64-v8a"
-
-          cmake android/app/src/main/cpp \
-            -B build-jni-arm64 \
-            -DCMAKE_TOOLCHAIN_FILE="$NDK_ROOT/build/cmake/android.toolchain.cmake" \
-            -DANDROID_ABI=arm64-v8a \
-            -DANDROID_PLATFORM=android-26 \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DMNN_INCLUDE_DIR="$MNN_INC" \
-            -DMNN_LLM_INCLUDE_DIR="$LLM_INC" \
-            -DMNN_LIB_DIR="$MNN_LIB"
-
-          cmake --build build-jni-arm64 --parallel $(nproc)
-
-          cp build-jni-arm64/libmnn_jni.so mnn-android-libs/arm64-v8a/
-          echo "JNI wrapper built:"
-          ls -lh mnn-android-libs/arm64-v8a/libmnn_jni.so
-
-      - name: Copy MNN libs into jniLibs
-        run: |
-          mkdir -p android/app/src/main/jniLibs/arm64-v8a
-          if [ -d mnn-android-libs/arm64-v8a ]; then
-            cp mnn-android-libs/arm64-v8a/*.so android/app/src/main/jniLibs/arm64-v8a/ 2>/dev/null || true
-            echo "Bundled native libs:"
-            ls android/app/src/main/jniLibs/arm64-v8a/
-          else
-            echo "WARNING: mnn-android-libs not found – APK will run in online-only mode"
-          fi
 
       # ── Gradle build ──────────────────────────────────────────────────
       - name: Cache Gradle packages
@@ -240,4 +93,3 @@ jobs:
           name: app-release-unsigned
           path: android/app/build/outputs/apk/release/app-release-unsigned.apk
           retention-days: 30
-

@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">攻略UP管理员</string>
+    <string name="channel_download_name">模型下载</string>
+    <string name="channel_download_desc">显示大模型文件的下载进度</string>
+</resources>

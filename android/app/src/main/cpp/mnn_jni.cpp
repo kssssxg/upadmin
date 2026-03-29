@@ -186,8 +186,7 @@ Java_com_me_chat_ai_up_admin_mnn_MNNLLMEngine_nativeCreate(
             LOGE("Llm::createLLM returned null for %s", configStr.c_str());
             return 0L;
         }
-        llm->initRuntime();
-        LOGI("LLM initialised, handle=%p", static_cast<void*>(llm));
+        LOGI("LLM created, handle=%p", static_cast<void*>(llm));
         return reinterpret_cast<jlong>(llm);
     } catch (const std::exception& e) {
         LOGE("nativeCreate exception: %s", e.what());

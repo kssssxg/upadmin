@@ -44,7 +44,7 @@ jobs:
           path: |
             mnn-android-libs
             mnn-headers
-          key: mnn-3.4.1-android-arm64-v8a-llm-jni-v1
+          key: mnn-3.4.1-android-arm64-v8a-llm-jni-v2
 
       - name: Locate NDK
         id: ndk
@@ -93,7 +93,11 @@ jobs:
             -DMNN_BUILD_TOOLS=OFF \
             -DMNN_WIN_RUNTIME_MT=OFF
 
-          make -j$(nproc) MNN mnn_llm
+          # Build everything configured (MNN core + LLM + sub-targets).
+          # Avoid naming specific targets: in MNN 3.4.1 the LLM target is
+          # registered via add_subdirectory and is NOT a valid top-level
+          # make target when invoked by name.
+          cmake --build . --parallel $(nproc)
 
           mkdir -p ../../mnn-android-libs/arm64-v8a
           # Copy all built .so files (libMNN.so, libmnn_llm.so, libMNN_Express.so if present)

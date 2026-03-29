@@ -18,8 +18,8 @@ import kotlinx.coroutines.withContext
  * 2. Copy the `.so` files for `arm64-v8a` / `armeabi-v7a` into
  *    `app/src/main/jniLibs/<abi>/`:
  *    - `libMNN.so`
- *    - `libMNN_Express.so`
- *    - `libmnn_llm.so`
+         *    - `libMNN_Express.so`
+         *    - `libllm.so`
  * 3. Ensure `build.gradle.kts` lists those ABIs in `ndk { abiFilters }`.
  *
  * The `System.loadLibrary` calls below are guarded so that the rest of
@@ -138,7 +138,12 @@ class MNNLLMEngine {
                 } catch (_: UnsatisfiedLinkError) {
                     // Integrated into libMNN in newer builds — not a fatal error.
                 }
-                System.loadLibrary("mnn_llm")
+                try {
+                    System.loadLibrary("llm")
+                } catch (_: UnsatisfiedLinkError) {
+                    // Backward compat with older builds that shipped libmnn_llm.so
+                    System.loadLibrary("mnn_llm")
+                }
                 nativeAvailable = true
                 Log.i(TAG, "MNN native library loaded successfully")
             } catch (e: UnsatisfiedLinkError) {

@@ -47,27 +47,18 @@ git clone https://github.com/kssssxg/upadmin.git
 cd upadmin/android
 ```
 
-### 2. 配置 MNN 原生库（必须）
+### 2. 编译并内置 MNN 原生库（必须）
 
-本地模型功能需要 MNN 动态链接库（`.so`）。请按以下步骤获取：
+仓库内提供脚本可从源码直接编译 MNN + MNN-LLM 动态库，无需手动下载：
 
-1. 前往 [MNN Releases](https://github.com/alibaba/MNN/releases)，下载最新 `MNN-Android-*.zip`。
-2. 解压后将以下文件复制到项目的 `jniLibs` 目录：
-
-```
-android/app/src/main/jniLibs/
-├── arm64-v8a/
-│   ├── libMNN.so
-│   ├── libMNN_Express.so
-│   └── libmnn_llm.so
-└── armeabi-v7a/
-    ├── libMNN.so
-    ├── libMNN_Express.so
-    └── libmnn_llm.so
+```bash
+cd android
+./scripts/build-mnn.sh              # 默认编译 arm64-v8a + armeabi-v7a，版本 3.4.1
+# 或指定 ABI / 版本：
+# ./scripts/build-mnn.sh 3.4.1 arm64-v8a
 ```
 
-> **注意**：若不配置 `.so` 文件，应用仍可正常运行，但「本地模型」功能将被禁用，
-> 只能使用在线 API 模式。
+编译完成后，生成的 `.so` 会自动放入 `app/src/main/jniLibs/<abi>/`，Gradle 构建会随 APK 一并打包。
 
 ### 3. 用 Android Studio 打开
 
